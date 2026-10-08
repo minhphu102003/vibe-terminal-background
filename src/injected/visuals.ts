@@ -40,16 +40,28 @@ const CSS = `
   transition: opacity var(--vibe-transition, 350ms) ease;
   pointer-events: none;
 }
-.${HOST_CLASS} .terminal-outer-container,
+.${HOST_CLASS},
+.${HOST_CLASS} .terminal-groups-container,
+.${HOST_CLASS} .terminal-group,
+.${HOST_CLASS} .instance-container,
+.${HOST_CLASS} .terminal-sash-container,
+.${HOST_CLASS} .terminal-sash,
 .${HOST_CLASS} .terminal-wrapper,
+.${HOST_CLASS} .terminal-outer-container,
+.${HOST_CLASS} .xterm,
 .${HOST_CLASS} .xterm-viewport,
+.${HOST_CLASS} .xterm-scrollable-element,
 .${HOST_CLASS} .xterm-screen,
-.${HOST_CLASS} .xterm {
+.${HOST_CLASS} .xterm-rows {
   background-color: transparent !important;
 }
 .${HOST_CLASS} .xterm {
   opacity: var(--vibe-text-opacity, 1);
   transition: opacity var(--vibe-transition, 350ms) ease;
+}
+.${HOST_CLASS} .xterm-rows span[class*="xterm-bg-"]:not([class*="xterm-cursor"]),
+.${HOST_CLASS} .xterm-rows span[style*="background-color"]:not([class*="xterm-cursor"]) {
+  background-color: transparent !important;
 }
 `.replace(/^\s+/gm, '');
 

@@ -13,4 +13,5 @@ tsconfig.test.json
 **/*.map
 **/*.ts
 vibe-terminal-background-spec.md
+HUONG_DAN.md
 *.vsix

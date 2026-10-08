@@ -16,7 +16,7 @@ const PROJECT = join(__dirname, '..');
 const PROFILE = join(__dirname, '.dev-profile');
 const SMOKE = join(__dirname, 'smoke-folder');
 const DIAG = join(PROFILE, 'User', 'globalStorage', 'vibe-terminal.vibe-terminal-background', 'diagnostics.log');
-const BRIDGE = 'http://127.0.0.1:47832';
+const BRIDGE = 'http://127.0.0.1:47833'; // separate port so a live VS Code (47832) doesn't clash
 const TIKTOK_URL = 'https://www.tiktok.com/@lifewithrusstie/video/7597942121538112799';
 
 function findCodeExe() {
@@ -43,6 +43,7 @@ function prepare() {
         'task.allowAutomaticTasks': 'on',
         'terminal.integrated.enablePersistentSessions': false,
         'vibeTerminal.enabled': true,
+        'vibeTerminal.bridgePort': 47833,
         'vibeTerminal.playlist': [join(PROJECT, 'poc', 'clip1.mp4'), TIKTOK_URL], // local first -> rotation under test
         'vibeTerminal.audio': 'stateful',
       },

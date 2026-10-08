@@ -117,7 +117,7 @@
             "unmuted"
           ],
           "default": "stateful",
-          "description": "stateful: unmute while thinking, mute while interactive. muted: always silent. unmuted: always audible (best effort)."
+          "description": "stateful: unmute while thinking, mute while interactive. muted: always silent. unmuted: always audible (best effort). Applies to local videos only — the TikTok iframe is always muted (browser autoplay policy)."
         },
         "vibeTerminal.transitionMs": {
           "type": "number",

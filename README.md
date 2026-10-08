@@ -33,7 +33,7 @@ agent event ──curl──▶ bridge 127.0.0.1:47832 ──SSE──▶ inject
 
 | State | Trigger | Video | Audio (`stateful` mode) |
 |---|---|---|---|
-| `thinking` | agent streaming / calling tools | bright (0.85), text dimmed (0.4) | unmuted |
+| `thinking` | agent streaming / calling tools | bright (0.85), text dimmed (0.4) | unmuted (local video) |
 | `interactive` | agent asks a question / idle / default | dimmed (0.15), text fully readable | muted |
 
 - Default state is **interactive** — text is readable with no adapter installed.
@@ -43,8 +43,10 @@ agent event ──curl──▶ bridge 127.0.0.1:47832 ──SSE──▶ inject
   otherwise leave the terminal stuck dimmed with audio playing.
 - **Playlist**: 1 entry loops natively; 2+ entries rotate on the official TikTok
   `ended` event (local MP4/WebM mixed freely with TikTok URLs).
-- **Audio** is best-effort per browser rules: TikTok must be loaded with `muted=0`
-  for the host to be able to unmute (`audio: "muted"` forces silence).
+- **Audio** is best-effort per browser rules: the **TikTok iframe is always muted**
+  (it pauses itself if the host unmutes outside a user gesture — verified), so
+  `stateful`/`unmuted` apply to **local MP4/WebM** only; `audio: "muted"` forces
+  silence everywhere.
 
 ## Commands
 
@@ -136,6 +138,9 @@ playlist rotation (local clip → TikTok), then prints a PASS/FAIL verdict per c
 ## Requirements & limitations
 
 - Verified on **VS Code 1.141** (Windows). Requires `^1.95.0` APIs.
+- Requires `terminal.integrated.gpuAcceleration: "off"` (DOM renderer) — the WebGL
+  renderer paints an opaque canvas over the video. The extension sets it to `"off"`
+  automatically on activation (and warns if you force it `"on"`).
 - The workbench file is patched once (backup taken). VS Code updates may re-trigger
   the patch on next activation; use `Unpatch / Repair` to revert at any time.
 - Video is mounted **only** behind the Integrated Terminal — editors, diff views and
@@ -148,6 +153,8 @@ playlist rotation (local clip → TikTok), then prints a PASS/FAIL verdict per c
 
 Full design (12-phase plan, hooks protocol, visuals, acceptance checklist):
 `vibe-terminal-background-spec.md` (in the repository root).
+
+Step-by-step installation & testing guide (Vietnamese): `HUONG_DAN.md`.
 
 ## License
 

@@ -13,3 +13,6 @@ poc/.exp-profile/
 poc/.exp-ext/
 poc/.netlog-profile/
 poc/netlog.json
+
+# local notes (not part of the repo)
+HUONG_DAN.md

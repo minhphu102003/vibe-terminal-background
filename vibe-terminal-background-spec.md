@@ -380,7 +380,7 @@ Target behavior:
 ```text
 autoplay = true
 loop = true              (single-entry playlist; multi-entry rotates instead — see below)
-muted = true             (on load only; unmuted via postMessage per state — see Audio)
+muted = true             (ALWAYS — see Audio; unMute is not used with the iframe)
 controls = false
 ```
 
@@ -397,8 +397,9 @@ fullscreen_button=0
 volume_control=0
 timestamp=0
 loop=1                   (single-entry playlist only)
-muted=0|1                (per audio mode: stateful/unmuted must load with muted=0 —
-                          a muted=1 load blocks host unMute commands; muted mode loads with muted=1)
+muted=1                  (ALWAYS: loading with muted=0 lets TikTok autoplay once,
+                          but any later unMute makes the embed PAUSE itself —
+                          verified over CDP. The host only ever sends "mute")
 ```
 
 ## Player Messaging (official postMessage protocol)
@@ -407,8 +408,8 @@ Host → player (verified: messages must be OBJECTS tagged `x-tiktok-player: tru
 — JSON strings are ignored — and are dropped until `onPlayerReady`):
 
 ```text
-mute            set volume to 0
-unMute          restore volume
+mute            set volume to 0   (the only audio command the host sends)
+unMute          restore volume    (protocol-defined; NEVER sent — pauses the embed, see Audio)
 seekTo          seek to seconds (not required in MVP)
 ```
 
@@ -435,13 +436,19 @@ if the ended event never arrives, fall back to the configured entry (document it
 ## Audio (stateful)
 
 ```text
-load with muted=0          (muted=1 blocks host unMute — verified in integration;
-                            audio:"muted" loads with muted=1 instead)
-state == thinking      → postMessage unMute after onPlayerReady
-state == interactive   → postMessage mute
+TikTok iframe              ALWAYS muted: loads with muted=1 and the host only
+                            ever sends postMessage "mute".
+                            Reason (verified over CDP): the embed pauses itself
+                            as soon as the host sends unMute outside a user
+                            gesture — autoplay with sound is blocked by browser
+                            policy, so unMute would kill playback entirely.
+local <video>              follows vibeTerminal.audio:
+                            "stateful" (default) → unmute while thinking,
+                                                   mute while interactive
+                            "muted"               → always silent
+                            "unmuted"             → always audible
 commands sent before onPlayerReady are dropped by the embed → replay after ready
-if unMute is blocked by the host → stay muted, never error
-controlled by vibeTerminal.audio: "stateful" (default) | "muted" | "unmuted"
+never error on mute failures — silent fallback
 ```
 
 The extension should use the official player API/documentation rather than reverse-engineering TikTok.
@@ -662,6 +669,20 @@ Layer 2: Terminal/xterm content
 
 The terminal text must always appear above the video.
 
+The webgl/canvas terminal renderer is an EXCEPTION: it paints an opaque
+`terminal.background` into a full-size `<canvas>` above the video, so the video
+is invisible no matter the CSS. Requirement:
+
+```text
+terminal.integrated.gpuAcceleration = "off"   (DOM renderer — REQUIRED)
+```
+
+The extension sets it automatically on activation (auto/undefined → set Global
+"off" + toast; "on" → warning with a fix button; "off" → silent). The runtime
+diagnostic reports which renderer is active
+(`renderer=dom (transparent — video visible)` vs
+`renderer=webgl/canvas (OPAQUE canvas covers video ...)`).
+
 The video must never intercept terminal mouse/keyboard input.
 
 Equivalent behavior:
@@ -773,9 +794,10 @@ Add VS Code settings:
 `vibeTerminal.audio`:
 
 ```text
-stateful   unmute while thinking, mute while interactive (default)
+stateful   unmute while thinking, mute while interactive (default; local <video> only —
+           the TikTok iframe is ALWAYS muted, see §6 Audio)
 muted      always silent
-unmuted    always audible (best-effort; host may still block)
+unmuted    always audible, local <video> only (best-effort; TikTok iframe stays muted)
 ```
 
 `vibeTerminal.bridgePort` / `stateIdleFallbackSec` are consumed by the state bridge (§15).
@@ -1557,8 +1579,10 @@ Codex with hooks disabled → legacy notify fallback documented
 Simulate Thinking   → text dims, video brightens, smooth fade
 Simulate Interactive → text sharp, video dims, smooth fade
 idle fallback (stateIdleFallbackSec) reverts thinking → interactive
-audio stateful: unMute on thinking, mute on interactive
+audio stateful (local video): unMute on thinking, mute on interactive
+TikTok iframe: always muted — unMute pauses the embed (§6 Audio)
 blocked unMute / audio="muted" → silent, no errors
+[ ] requires terminal.integrated.gpuAcceleration="off" (auto-set on activation)
 no adapter installed → default state interactive
 ```
 
@@ -1627,7 +1651,8 @@ The implementation is considered complete only when all applicable items pass.
 [ ] Local MP4 works
 [ ] Local WebM works where supported
 [ ] Video loops
-[ ] Audio follows vibeTerminal.audio (stateful unmute/mute, silent fallback)
+[ ] Audio follows vibeTerminal.audio for local video (stateful unmute/mute, silent fallback); TikTok iframe stays muted
+[ ] GPU acceleration off → DOM renderer → video visible behind terminal
 [ ] Video opacity is configurable
 [ ] Overlay opacity is configurable
 [ ] Text opacity is configurable per state

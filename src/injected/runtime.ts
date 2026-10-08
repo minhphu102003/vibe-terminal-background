@@ -51,6 +51,7 @@ class VibeRuntime {
   private intersectionObserver: IntersectionObserver | null = null;
   private source: EventSource | null = null;
   private sseWatchdog: ReturnType<typeof setInterval> | null = null;
+  private sseStuckSince: number | null = null;
   private scanTimer: ReturnType<typeof setInterval> | null = null;
   private mutationObserver: MutationObserver | null = null;
   private diagDone = false;
@@ -154,12 +155,30 @@ class VibeRuntime {
   /**
    * EventSource auto-retries on its own but with browser backoff (observed
    * multi-second gaps when the bridge starts after the workbench). This guard
-   * bounds self-heal: any not-open state for >1s is force-recreated, so a
-   * bridge (re)start is picked up within ~1 attempt of it listening.
+   * bounds self-heal without fighting that backoff: CONNECTING gets a 5s
+   * grace period (EventSource retries itself), CLOSED is recreated at once.
    */
   private sseGuard(): void {
-    if (this.source && this.source.readyState === EventSource.OPEN) return;
-    this.logNow(`sse\ guard: not open (readyState=${this.source?.readyState ?? -1}) -> recreate`);
+    const state = this.source?.readyState ?? -1;
+    if (state === EventSource.OPEN) {
+      this.sseStuckSince = null;
+      return;
+    }
+    if (state === EventSource.CLOSED) {
+      this.logNow(`sse\ guard: closed -> recreate`);
+      this.sseStuckSince = null;
+      this.createSource();
+      return;
+    }
+    // CONNECTING (or no source): grace period, then force one attempt.
+    const now = Date.now();
+    if (this.sseStuckSince === null) {
+      this.sseStuckSince = now;
+      return;
+    }
+    if (now - this.sseStuckSince < 5000) return;
+    this.logNow(`sse\ guard: connecting\ >5s -> recreate`);
+    this.sseStuckSince = null;
     this.createSource();
   }
 
@@ -374,8 +393,65 @@ class VibeRuntime {
     };
 
     this.log(`diag host=${host.className}`);
+
+    // Renderer matters: webgl/canvas draw an opaque terminal background into a
+    // full-size <canvas> above the video — only the DOM renderer leaves gaps.
+    const mainCanvas = [...host.querySelectorAll<HTMLCanvasElement>('.xterm canvas')].find(
+      (c) => !c.className && c.width > 300 && c.height > 50,
+    );
+    this.log(
+      mainCanvas
+        ? 'renderer=webgl/canvas (OPAQUE canvas covers video — set terminal.integrated.gpuAcceleration=off)'
+        : 'renderer=dom (transparent — video visible)',
+    );
     for (const sel of ['.terminal-outer-container', '.terminal-wrapper', '.xterm', '.xterm-screen', '.xterm-viewport']) {
       this.log(`diag ${probe(sel)}`);
+    }
+
+    // Who sits on top of the video at the host centre? Walk the FULL hit stack
+    // and flag every layer with an opaque background (the real occluders).
+    try {
+      const hx = host.getBoundingClientRect();
+      const stack = document.elementsFromPoint(hx.left + hx.width / 2, hx.top + hx.height / 2);
+      const opaque = stack
+        .map((el) => ({ el, cs: getComputedStyle(el) }))
+        // Ancestors of the video root paint behind it — they never occlude.
+        .filter(({ el }) => !(this.root && el !== this.root && el.contains(this.root)))
+        // Cells/widgets inside the text layer are content and stay opaque by design
+        // (the screen element itself is still eligible — it must stay transparent).
+        .filter(({ el }) => {
+          const inScreen = el.closest('.xterm-screen');
+          return !inScreen || inScreen === el;
+        })
+        .filter(({ cs }) => {
+          const m = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor);
+          const alpha = m?.[1] ? Number(m[1].split(',')[3]?.trim() ?? 1) : 1;
+          return alpha > 0.05;
+        })
+        .map(({ el, cs }) => {
+          const cls = typeof el.className === 'string' ? el.className.slice(0, 60) : el.tagName;
+          return `${el.tagName.toLowerCase()}.${cls} bg=${cs.backgroundColor} z=${cs.zIndex}/${cs.position}`;
+        });
+      this.log(`occluders@center opaque=${opaque.length} [${opaque.join(' | ')}]`);
+      this.log(`hitstack@center [${stack.slice(0, 6).map((el) => (typeof el.className === 'string' ? el.className.slice(0, 40) : el.tagName)).join(' > ')}]`);
+    } catch (err) {
+      this.log(`occluder@center probe failed: ${String(err)}`);
+    }
+
+    // Style sheet + layer rects sanity.
+    try {
+      const styleEl = document.getElementById('vibe-terminal-style') as HTMLStyleElement | null;
+      const rules = styleEl?.sheet ? styleEl.sheet.cssRules.length : -1;
+      this.log(`style ${styleEl ? `present rules=${rules}` : 'MISSING'}`);
+      const rr = this.root?.getBoundingClientRect();
+      const hr = host.getBoundingClientRect();
+      const media = this.root?.querySelector('video, iframe');
+      const mr = media?.getBoundingClientRect();
+      this.log(
+        `rects root=${rr ? `${Math.round(rr.width)}x${Math.round(rr.height)}` : 'n/a'} host=${Math.round(hr.width)}x${Math.round(hr.height)} media=${mr ? `${Math.round(mr.width)}x${Math.round(mr.height)}@${Math.round(mr.left - hr.left)},${Math.round(mr.top - hr.top)}` : 'n/a'}`,
+      );
+    } catch (err) {
+      this.log(`rect probe failed: ${String(err)}`);
     }
 
     // renderer + background alpha probe

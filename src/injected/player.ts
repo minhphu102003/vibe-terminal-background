@@ -125,7 +125,9 @@ export class PlayerManager {
     if (entry.kind === 'tiktok' && entry.tiktokId) {
       const iframe = document.createElement('iframe');
       iframe.className = 'vibe-media vibe-media--iframe';
-      iframe.setAttribute('src', buildPlayerUrl(entry.tiktokId, { loop: single && this.loop, muted: this.audio === 'muted' }));
+      // Always load muted: browsers block unmuted autoplay, which left the
+      // player paused forever. Sound is toggled via postMessage per state.
+      iframe.setAttribute('src', buildPlayerUrl(entry.tiktokId, { loop: single && this.loop, muted: true }));
       iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen; picture-in-picture');
       iframe.setAttribute('title', 'vibe-terminal-tiktok');
       iframe.setAttribute('scrolling', 'no');
@@ -165,7 +167,6 @@ export class PlayerManager {
     this.iframe.style.top = `${Math.round(box.y)}px`;
     this.iframe.style.width = `${Math.round(box.width)}px`;
     this.iframe.style.height = `${Math.round(box.height)}px`;
-    this.iframe.style.inset = 'auto';
   }
 
   private handleMessage(ev: MessageEvent): void {
@@ -218,7 +219,9 @@ export class PlayerManager {
       this.video.muted = mute;
       if (!mute) void this.video.play().catch(() => undefined);
     }
-    // Commands sent before onPlayerReady are silently dropped by the embed.
-    if (this.iframe && this.ready) this.post(mute ? 'mute' : 'unMute');
+    // TikTok's embed pauses itself whenever it is unmuted without a user
+    // gesture inside the frame, so iframe entries always stay muted —
+    // stateful audio only applies to local <video> playlists.
+    if (this.iframe && this.ready) this.post('mute');
   }
 }

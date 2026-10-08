@@ -63,6 +63,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let config = mergeConfig(readRawConfig());
   updateMediaRoots(config);
 
+  // The webgl/canvas terminal renderer paints an opaque background into a
+  // full-size <canvas> above the video — only the DOM renderer lets it show.
+  const ensureDomRenderer = async (): Promise<void> => {
+    const term = vscode.workspace.getConfiguration('terminal');
+    const gpu = term.get<string>('integrated.gpuAcceleration');
+    if (gpu === 'off') {
+      log('renderer: terminal.integrated.gpuAcceleration=off (DOM renderer)');
+      return;
+    }
+    if (gpu === 'on') {
+      const pick = await vscode.window.showWarningMessage(
+        'Vibe Terminal: terminal.integrated.gpuAcceleration="on" paints an opaque canvas over the video. Turn it off (DOM renderer) to see the background.',
+        'Turn off GPU acceleration',
+      );
+      if (pick) {
+        await term.update('integrated.gpuAcceleration', 'off', vscode.ConfigurationTarget.Global);
+        log('renderer: gpuAcceleration set to "off" by user choice');
+      }
+      return;
+    }
+    try {
+      await term.update('integrated.gpuAcceleration', 'off', vscode.ConfigurationTarget.Global);
+      log('renderer: terminal.integrated.gpuAcceleration set to "off" (DOM renderer — required for the video)');
+      void vscode.window.showInformationMessage(
+        'Vibe Terminal: set terminal.integrated.gpuAcceleration to "off" so the video shows behind the terminal. Reopen your terminal (or reload the window) to apply.',
+      );
+    } catch (err) {
+      log(`renderer: could not set gpuAcceleration=off: ${String(err)}`);
+    }
+  };
+  void ensureDomRenderer();
+
   const metaCache = new TikTokMetadataCache(join(context.globalStorageUri.fsPath, 'cache', 'tiktok'));
   const runtimeConfig = () => toRuntimeConfig(config, (id) => metaCache.get(id));
 
