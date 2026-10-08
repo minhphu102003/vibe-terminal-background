@@ -1,0 +1,16 @@
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+poc/**
+dist-test/**
+node_modules/**
+esbuild.mjs
+eslint.config.mjs
+tsconfig.json
+tsconfig.test.json
+.gitignore
+**/*.map
+**/*.ts
+vibe-terminal-background-spec.md
+*.vsix

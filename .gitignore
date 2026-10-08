@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-test/
+*.vsix
+*.bak
+
+# scratch profiles / logs from the PoC & run-dev harnesses
+poc/.poc-profile/
+poc/.poc-ext/
+poc/.dev-profile/
+poc/.dev-ext/
+poc/.exp-profile/
+poc/.exp-ext/
+poc/.netlog-profile/
+poc/netlog.json

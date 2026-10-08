@@ -1,0 +1,227 @@
+{
+  "name": "vibe-terminal-background",
+  "displayName": "Vibe Terminal Background",
+  "description": "State-driven looping video background (local MP4/WebM + TikTok playlist) behind the VS Code Integrated Terminal only.",
+  "version": "0.1.0",
+  "publisher": "vibe-terminal",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibeTerminal.setBackground",
+        "title": "Set Background",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.setTikTokBackground",
+        "title": "Set TikTok Background",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.addTikTokToPlaylist",
+        "title": "Add TikTok to Playlist",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.removeFromPlaylist",
+        "title": "Remove TikTok from Playlist",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.clearBackground",
+        "title": "Clear Background",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.toggleBackground",
+        "title": "Toggle Background",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.reloadBackground",
+        "title": "Reload Background",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.installHarnessAdapters",
+        "title": "Install Harness Adapters",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.uninstallHarnessAdapters",
+        "title": "Uninstall Harness Adapters",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.simulateThinking",
+        "title": "Simulate Thinking",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.simulateInteractive",
+        "title": "Simulate Interactive",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.unpatch",
+        "title": "Unpatch / Repair",
+        "category": "Vibe Terminal"
+      }
+    ],
+    "configuration": {
+      "title": "Vibe Terminal Background",
+      "properties": {
+        "vibeTerminal.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the terminal video background."
+        },
+        "vibeTerminal.playlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Ordered playlist of backgrounds (local file paths or TikTok video URLs). At least 1 entry is required for the background to run."
+        },
+        "vibeTerminal.fit": {
+          "type": "string",
+          "enum": [
+            "cover",
+            "contain",
+            "fill"
+          ],
+          "default": "cover",
+          "description": "How the video fits the terminal viewport."
+        },
+        "vibeTerminal.loop": {
+          "type": "boolean",
+          "default": true,
+          "description": "Loop local videos (single-entry TikTok playlists loop natively as well)."
+        },
+        "vibeTerminal.audio": {
+          "type": "string",
+          "enum": [
+            "stateful",
+            "muted",
+            "unmuted"
+          ],
+          "default": "stateful",
+          "description": "stateful: unmute while thinking, mute while interactive. muted: always silent. unmuted: always audible (best effort)."
+        },
+        "vibeTerminal.transitionMs": {
+          "type": "number",
+          "default": 350,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Fade duration between visual states in milliseconds."
+        },
+        "vibeTerminal.bridgePort": {
+          "type": "number",
+          "default": 47832,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Localhost port for the harness state bridge (127.0.0.1 only)."
+        },
+        "vibeTerminal.stateIdleFallbackSec": {
+          "type": "number",
+          "default": 300,
+          "minimum": 10,
+          "maximum": 86400,
+          "description": "Revert a stuck 'thinking' state to 'interactive' after this many seconds without events."
+        },
+        "vibeTerminal.states": {
+          "type": "object",
+          "default": {
+            "thinking": {
+              "videoOpacity": 0.85,
+              "overlayOpacity": 0.1,
+              "textOpacity": 0.4
+            },
+            "interactive": {
+              "videoOpacity": 0.15,
+              "overlayOpacity": 0.55,
+              "textOpacity": 1
+            }
+          },
+          "description": "Per-state visual opacities (0.0 - 1.0).",
+          "properties": {
+            "thinking": {
+              "type": "object",
+              "properties": {
+                "videoOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.85
+                },
+                "overlayOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.1
+                },
+                "textOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.4
+                }
+              }
+            },
+            "interactive": {
+              "type": "object",
+              "properties": {
+                "videoOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.15
+                },
+                "overlayOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.55
+                },
+                "textOpacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "node esbuild.mjs --test && node --test dist-test/all.test.js",
+    "vscode:prepublish": "npm run typecheck && npm run lint && npm run test && node esbuild.mjs --production",
+    "package": "npx @vscode/vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.95.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.15.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.15.0"
+  }
+}
