@@ -10,6 +10,15 @@ import type { AddressInfo } from 'node:net';
 export interface BridgeSnapshot {
   state: string;
   config: unknown;
+  /** Last playlist position reported by the injected runtime (0-based). */
+  player?: PlayerPosition | null;
+}
+
+export interface PlayerPosition {
+  index: number;
+  total: number;
+  source: string;
+  at: number;
 }
 
 export interface StateServerOptions {
@@ -35,12 +44,18 @@ export class StateServer {
   private readonly clients = new Set<http.ServerResponse>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private mediaResolver: ((id: string) => string | null) | null = null;
+  private player: PlayerPosition | null = null;
   private port = 0;
 
   constructor(private readonly opts: StateServerOptions) {}
 
   get portBound(): number {
     return this.port;
+  }
+
+  /** Latest playlist position reported by the runtime (null before first report). */
+  get playerPosition(): PlayerPosition | null {
+    return this.player;
   }
 
   setMediaResolver(fn: (id: string) => string | null): void {
@@ -153,9 +168,32 @@ export class StateServer {
       return;
     }
 
+    if (req.method === 'POST' && url.startsWith('/v1/player')) {
+      this.readBody(req, (body) => {
+        try {
+          const parsed = JSON.parse(body || '{}') as { index?: unknown; total?: unknown; source?: unknown };
+          const index = typeof parsed.index === 'number' && Number.isFinite(parsed.index) ? Math.trunc(parsed.index) : -1;
+          const total = typeof parsed.total === 'number' && Number.isFinite(parsed.total) ? Math.trunc(parsed.total) : 0;
+          const source = typeof parsed.source === 'string' ? parsed.source.slice(0, 1024) : '';
+          if (index < 0 || total <= 0 || index >= total) {
+            res.writeHead(400);
+            res.end();
+            return;
+          }
+          this.player = { index, total, source, at: Date.now() };
+          res.writeHead(204);
+          res.end();
+        } catch {
+          res.writeHead(400);
+          res.end();
+        }
+      });
+      return;
+    }
+
     if (req.method === 'GET' && url.startsWith('/v1/config')) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(this.opts.getSnapshot()));
+      res.end(JSON.stringify({ ...this.opts.getSnapshot(), player: this.player }));
       return;
     }
 
@@ -166,7 +204,7 @@ export class StateServer {
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
       });
-      res.write(`data: ${JSON.stringify({ type: 'snapshot', ...this.opts.getSnapshot() })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'snapshot', ...this.opts.getSnapshot(), player: this.player })}\n\n`);
       this.clients.add(res);
       const rport = req.socket.remotePort ?? 0;
       this.opts.onLog?.(`[bridge] sse client connected (total ${this.clients.size}, port ${rport})`);

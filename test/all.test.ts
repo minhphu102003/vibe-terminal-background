@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { DEFAULT_CONFIG, mergeConfig, clamp01, toRuntimeConfig } from '../src/config/settings';
 import { StateMachine, isVibeState } from '../src/bridge/stateMachine';
 import { StateServer } from '../src/bridge/stateServer';
-import { addCspSources, applyPatch, stripPatch, hasBlock, buildBlock, MARKER_BEGIN } from '../src/patch/manifest';
+import { addCspSources, applyPatch, stripPatch, hasBlock, buildBlock, MARKER_BEGIN, cspAdditionsFor, PORT_SPAN } from '../src/patch/manifest';
 import { extractTikTokId, isTikTokUrl, isUnresolvableTikTokShortLink, buildPlayerUrl } from '../src/tiktok/parser';
 import { fetchTikTokMetadata, parseOembed } from '../src/tiktok/oembed';
 import { TikTokMetadataCache } from '../src/tiktok/cache';
@@ -73,6 +73,24 @@ describe('patch/manifest', () => {
     // directive structure survives the round trip
     assert.match(reverted, /default-src 'none'/);
     assert.match(reverted, /frame-src 'self' vscode-webview:/);
+  });
+
+  it('CSP allows the full port range so sibling VS Code instances each bind a port', () => {
+    const base = 47832;
+    const adds = cspAdditionsFor(base);
+    // frame-src is a single fixed origin
+    assert.deepEqual(adds['frame-src'], ['https://www.tiktok.com']);
+    // connect-src and media-src cover base..base+PORT_SPAN inclusive
+    const expected = Array.from({ length: PORT_SPAN + 1 }, (_, i) => `http://127.0.0.1:${base + i}`);
+    assert.deepEqual(adds['connect-src'], expected);
+    assert.deepEqual(adds['media-src'], expected);
+    assert.equal(expected.length, 29);
+    // stripPatch removes the WHOLE range it added (idempotent round trip)
+    const patched = applyPatch(SAMPLE_HTML, { config: {}, bridgePort: base })!;
+    assert.match(patched, /http:\/\/127\.0\.0\.1:47860/);
+    const reverted = stripPatch(patched, base);
+    assert.doesNotMatch(reverted, /127\.0\.0\.1:47832/);
+    assert.doesNotMatch(reverted, /127\.0\.0\.1:47860/);
   });
 
   it('re-patching replaces the existing block (single occurrence)', () => {
@@ -384,7 +402,35 @@ describe('bridge/stateServer', () => {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/v1/config`);
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { state: 'interactive', config: { ok: true } });
+      assert.deepEqual(await res.json(), { state: 'interactive', config: { ok: true }, player: null });
+    } finally {
+      await srv.stop();
+    }
+  });
+
+  it('POST /v1/player records the runtime playlist position', async () => {
+    const { srv } = makeServer();
+    const port = await srv.start();
+    try {
+      const ok = await fetch(`http://127.0.0.1:${port}/v1/player`, {
+        method: 'POST',
+        body: JSON.stringify({ index: 1, total: 3, source: 'E:/clip.mp4' }),
+      });
+      assert.equal(ok.status, 204);
+      assert.deepEqual(
+        { ...srv.playerPosition, at: 0 },
+        { index: 1, total: 3, source: 'E:/clip.mp4', at: 0 },
+      );
+
+      const bad = await fetch(`http://127.0.0.1:${port}/v1/player`, {
+        method: 'POST',
+        body: JSON.stringify({ index: 5, total: 3, source: '' }),
+      });
+      assert.equal(bad.status, 400);
+      assert.equal(srv.playerPosition?.index, 1);
+
+      const cfg = await (await fetch(`http://127.0.0.1:${port}/v1/config`)).json();
+      assert.equal((cfg as { player: { index: number } }).player.index, 1);
     } finally {
       await srv.stop();
     }

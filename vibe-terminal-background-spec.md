@@ -824,6 +824,7 @@ Vibe Terminal: Set Background
 Vibe Terminal: Set TikTok Background
 Vibe Terminal: Add TikTok to Playlist
 Vibe Terminal: Remove TikTok from Playlist
+Vibe Terminal: Show Playlist
 Vibe Terminal: Clear Background
 Vibe Terminal: Toggle Background
 Vibe Terminal: Reload Background

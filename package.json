@@ -38,6 +38,11 @@
         "category": "Vibe Terminal"
       },
       {
+        "command": "vibeTerminal.showPlaylist",
+        "title": "Show Playlist",
+        "category": "Vibe Terminal"
+      },
+      {
         "command": "vibeTerminal.clearBackground",
         "title": "Clear Background",
         "category": "Vibe Terminal"

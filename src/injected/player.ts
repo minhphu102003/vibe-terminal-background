@@ -15,6 +15,8 @@ export function shouldMute(audio: AudioMode, state: VibeState): boolean {
 
 export interface PlayerManagerCallbacks {
   onLog: (msg: string) => void;
+  /** Reported on every mount: which playlist entry is on screen right now. */
+  onIndex?: (index: number, total: number, source: string) => void;
 }
 
 export class PlayerManager {
@@ -119,6 +121,7 @@ export class PlayerManager {
     this.teardownElement();
     const entry = this.currentEntry();
     if (!entry) return;
+    this.cb.onIndex?.(Math.min(this.index, this.entries.length - 1), this.entries.length, entry.source);
 
     const single = this.entries.length === 1;
 

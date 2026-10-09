@@ -65,12 +65,15 @@ export function removeCspSources(csp: string, removals: Record<string, string[]>
   return joinCsp(directives);
 }
 
+export const PORT_SPAN = 28; // allow basePort..basePort+28 so sibling VS Code instances can each bind a port
+
 export function cspAdditionsFor(bridgePort: number): Record<string, string[]> {
-  const bridge = `http://127.0.0.1:${bridgePort}`;
+  const urls: string[] = [];
+  for (let i = 0; i <= PORT_SPAN; i++) urls.push(`http://127.0.0.1:${bridgePort + i}`);
   return {
     'frame-src': ['https://www.tiktok.com'],
-    'connect-src': [bridge],
-    'media-src': [bridge],
+    'connect-src': urls,
+    'media-src': urls,
   };
 }
 

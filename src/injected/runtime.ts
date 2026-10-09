@@ -53,6 +53,7 @@ class VibeRuntime {
   private sseWatchdog: ReturnType<typeof setInterval> | null = null;
   private sseStuckSince: number | null = null;
   private scanTimer: ReturnType<typeof setInterval> | null = null;
+  private portDiscoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private mutationObserver: MutationObserver | null = null;
   private diagDone = false;
   private missCount = 0;
@@ -67,14 +68,61 @@ class VibeRuntime {
     this.log(
       `runtime started#${this.uid} inst=${this.inst} calls=${this.logCalls} (enabled=${String(this.cfg.enabled)}, entries=${this.cfg.playlist.length})`,
     );
-    this.scan();
     this.watchDom();
-    this.connect();
-    this.scanTimer = setInterval(() => this.scan(), 5000);
-    (this.scanTimer as { unref?: () => void }).unref?.();
     // The bridge may not be listening yet during early boot — queue + retry.
     this.logFlush = setInterval(() => this.flushLogs(), 300);
     (this.logFlush as { unref?: () => void }).unref?.();
+    // Discover THIS window's bridge port before connecting. The workbench.html
+    // is shared by every VS Code window, so the port embedded in it cannot be
+    // trusted — the extension publishes the real bound port in the status bar.
+    this.discoverAndConnect(0);
+  }
+
+  /**
+   * The extension writes `vibe-bridge:<port>` into this window's status bar.
+   * Reading it from the DOM is the only per-window channel the injected
+   * runtime has (the HTML + CSP are shared across all windows).
+   */
+  private discoverPort(): number | null {
+    try {
+      const sb = document.querySelector('.statusbar');
+      if (!sb) return null;
+      const m = /vibe-bridge:(\d{4,5})/.exec(sb.textContent || '');
+      if (m && m[1]) return parseInt(m[1], 10);
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
+  private static readonly PORT_DISCOVERY_ATTEMPTS = 40; // 40 * 250ms = 10s
+  private static readonly PORT_DISCOVERY_INTERVAL_MS = 250;
+
+  private discoverAndConnect(attempt: number): void {
+    const port = this.discoverPort();
+    if (port) {
+      if (port !== this.cfg.bridgePort) {
+        this.log(`bridge port discovered: ${this.cfg.bridgePort} -> ${port}`);
+        this.cfg = { ...this.cfg, bridgePort: port };
+      }
+      this.scan();
+      this.connect();
+      this.scanTimer = setInterval(() => this.scan(), 5000);
+      (this.scanTimer as { unref?: () => void }).unref?.();
+      return;
+    }
+    if (attempt >= VibeRuntime.PORT_DISCOVERY_ATTEMPTS) {
+      this.log(`bridge port discovery timed out — falling back to embedded ${this.cfg.bridgePort}`);
+      this.scan();
+      this.connect();
+      this.scanTimer = setInterval(() => this.scan(), 5000);
+      (this.scanTimer as { unref?: () => void }).unref?.();
+      return;
+    }
+    this.portDiscoveryTimer = setTimeout(
+      () => this.discoverAndConnect(attempt + 1),
+      VibeRuntime.PORT_DISCOVERY_INTERVAL_MS,
+    );
   }
 
   // ---- config / state -------------------------------------------------
@@ -316,7 +364,19 @@ class VibeRuntime {
     host.insertBefore(root, host.firstChild);
     this.root = root;
 
-    const players = new PlayerManager(root, { onLog: (m) => this.log(m) });
+    const players = new PlayerManager(root, {
+      onLog: (m) => this.log(m),
+      onIndex: (index, total, source) => {
+        try {
+          void fetch(`${this.bridge()}/v1/player`, {
+            method: 'POST',
+            body: JSON.stringify({ index, total, source }),
+          }).catch(() => undefined);
+        } catch {
+          /* bridge down — position is cosmetic */
+        }
+      },
+    });
     this.players = players;
     players.configure(this.cfg);
     players.setState(this.state);
@@ -345,6 +405,10 @@ class VibeRuntime {
   }
 
   private teardown(removeHostFlags = true): void {
+    if (this.portDiscoveryTimer) {
+      clearTimeout(this.portDiscoveryTimer);
+      this.portDiscoveryTimer = null;
+    }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.intersectionObserver?.disconnect();

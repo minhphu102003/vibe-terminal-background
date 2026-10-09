@@ -96,7 +96,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void ensureDomRenderer();
 
   const metaCache = new TikTokMetadataCache(join(context.globalStorageUri.fsPath, 'cache', 'tiktok'));
-  const runtimeConfig = () => toRuntimeConfig(config, (id) => metaCache.get(id));
+  // The port this window's bridge ACTUALLY bound (may differ from the configured
+  // base when a sibling VS Code instance already holds it). The injected runtime
+  // needs the real port for media/SSE; the patched workbench HTML is shared by
+  // every window so it only ever embeds the neutral bootstrap below.
+  let boundPort = 0;
+  const runtimeConfig = () => ({
+    ...toRuntimeConfig(config, (id) => metaCache.get(id)),
+    bridgePort: boundPort || config.bridgePort,
+  });
+  // Embedded into the (shared) workbench.html: neutral — no playlist, no port.
+  // The real playlist/port reach the runtime over this window's own SSE bridge.
+  const bootstrapConfig = () => ({ enabled: false, playlist: [], bridgePort: config.bridgePort });
 
   /** Best-effort metadata: cache → oEmbed → null (never blocks the command). */
   const resolveMeta = async (url: string): Promise<void> => {
@@ -120,26 +131,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: () => machine.dispose() });
 
-  server = new StateServer({
-    port: config.bridgePort,
-    onState: (state, harness) => {
-      machine.handle({ state: state as VibeState, harness });
-    },
-    getSnapshot: () => ({ state: machine.state, config: runtimeConfig() }),
-    onLog: (line) => log(line),
-  });
-  server.setMediaResolver((id) => id);
+  // Each VS Code window binds its own bridge so 2+ instances stay independent:
+  // scan upward from the configured base until a free port is found.
+  const PORT_MAX_SPAN = 28; // matches PORT_SPAN in patch/manifest.ts (CSP range)
 
-  try {
-    const port = await server.start();
-    log(`state bridge listening on 127.0.0.1:${port}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log(`state bridge not started: ${msg}`);
-    server = null;
-    void vscode.window.showWarningMessage(`Vibe Terminal: ${msg} Background keeps working with defaults.`);
+  for (let i = 0; i <= PORT_MAX_SPAN; i++) {
+    const candidate = config.bridgePort + i;
+    const s = new StateServer({
+      port: candidate,
+      onState: (state, harness) => {
+        machine.handle({ state: state as VibeState, harness });
+      },
+      getSnapshot: () => ({ state: machine.state, config: runtimeConfig() }),
+      onLog: (line) => log(line),
+    });
+    s.setMediaResolver((id) => id);
+    try {
+      boundPort = await s.start();
+      server = s;
+      log(`state bridge listening on 127.0.0.1:${boundPort}`);
+      break;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/already in use/i.test(msg) && i < PORT_MAX_SPAN) {
+        log(`port ${candidate} in use (another VS Code instance?) — trying ${candidate + 1}`);
+        continue;
+      }
+      log(`state bridge not started: ${msg}`);
+      server = null;
+      void vscode.window.showWarningMessage(`Vibe Terminal: ${msg} Background keeps working with defaults.`);
+      break;
+    }
   }
   context.subscriptions.push({ dispose: () => void server?.stop() });
+
+  // Publish this window's bound port so the injected runtime can discover it
+  // from the status bar DOM (the workbench.html is shared across windows, so
+  // the runtime must not trust the port embedded in it).
+  const statusItem = vscode.window.createStatusBarItem('vibeTerminal.bridge', vscode.StatusBarAlignment.Right, 100);
+  statusItem.name = 'Vibe Terminal Bridge';
+  if (server && boundPort) {
+    statusItem.text = `$(pulse) vibe-bridge:${boundPort}`;
+    statusItem.tooltip = `Vibe Terminal state bridge — 127.0.0.1:${boundPort} (this window)`;
+    statusItem.show();
+  }
+  context.subscriptions.push(statusItem);
 
   // --- workbench patch (isolated module) --------------------------------
   const workbench = locateWorkbench();
@@ -175,9 +211,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // --- commands (Phases 2-7) --------------------------------------------
+  // Per-window isolation: playlist/enabled are written to the WORKSPACE scope
+  // (this folder's .vscode/settings.json) so two instances over two folders
+  // never overwrite each other. Empty window falls back to Global.
+  const configTarget = (): vscode.ConfigurationTarget =>
+    vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+
   const setPlaylist = async (entries: string[]): Promise<void> => {
     const c = vscode.workspace.getConfiguration(SECTION);
-    await c.update('playlist', entries, vscode.ConfigurationTarget.Global);
+    await c.update('playlist', entries, configTarget());
   };
 
   const promptTikTokUrl = async (title: string): Promise<string | null> => {
@@ -227,6 +269,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await setPlaylist([...config.playlist, url]);
       void vscode.window.setStatusBarMessage(`Vibe Terminal: added (${config.playlist.length + 1} entries)`, 3000);
     }),
+    vscode.commands.registerCommand('vibeTerminal.showPlaylist', async () => {
+      if (config.playlist.length === 0) {
+        void vscode.window.showInformationMessage('Vibe Terminal: playlist is empty.');
+        return;
+      }
+      // Runtime reports its position to the bridge; it may be stale (another
+      // window, or nothing mounted yet) — only mark it if it fits the list.
+      const pos = server?.playerPosition ?? null;
+      const currentIndex =
+        pos && pos.total === config.playlist.length && pos.at > Date.now() - 120_000 ? pos.index : -1;
+      const items = config.playlist.map((source, i) => {
+        const id = extractTikTokId(source);
+        const title = id ? metaCache.get(id)?.title : undefined;
+        const isCurrent = i === currentIndex;
+        return {
+          label: `${isCurrent ? '$(play) ' : ''}${i + 1}/${config.playlist.length}  ${source}`,
+          description: isCurrent ? 'now playing' : title ?? (id ? `tiktok:${id}` : 'local'),
+          detail: isCurrent ? undefined : source === pos?.source ? 'reported playing (stale?)' : undefined,
+          source,
+        };
+      });
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'Vibe Terminal: Playlist',
+        placeHolder: currentIndex >= 0 ? 'entry with ▶ is playing now' : 'select an entry',
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!picked) return;
+      const action = await vscode.window.showQuickPick(
+        [
+          { label: '$(trash) Remove from playlist', action: 'remove' as const },
+          { label: '$(copy) Copy source', action: 'copy' as const },
+          { label: '$(settings-gear) Open in Settings', action: 'settings' as const },
+        ],
+        { title: `Vibe Terminal: ${picked.source}` },
+      );
+      if (!action) return;
+      if (action.action === 'remove') {
+        await setPlaylist(config.playlist.filter((e) => e !== picked.source));
+        void vscode.window.setStatusBarMessage('Vibe Terminal: entry removed', 3000);
+      } else if (action.action === 'copy') {
+        await vscode.env.clipboard.writeText(picked.source);
+        void vscode.window.setStatusBarMessage('Vibe Terminal: source copied', 3000);
+      } else {
+        void vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          'vibeTerminal.playlist',
+        );
+      }
+    }),
     vscode.commands.registerCommand('vibeTerminal.removeFromPlaylist', async () => {
       if (config.playlist.length === 0) {
         void vscode.window.showInformationMessage('Vibe Terminal: playlist is empty.');
@@ -256,12 +348,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('vibeTerminal.toggleBackground', async () => {
       const c = vscode.workspace.getConfiguration(SECTION);
       const next = !c.get<boolean>('enabled', true);
-      await c.update('enabled', next, vscode.ConfigurationTarget.Global);
+      await c.update('enabled', next, configTarget());
       void vscode.window.setStatusBarMessage(`Vibe Terminal: background ${next ? 'enabled' : 'disabled'}`, 3000);
     }),
     vscode.commands.registerCommand('vibeTerminal.clearBackground', async () => {
       const c = vscode.workspace.getConfiguration(SECTION);
-      await c.update('playlist', [], vscode.ConfigurationTarget.Global);
+      await c.update('playlist', [], configTarget());
       void vscode.window.setStatusBarMessage('Vibe Terminal: background cleared', 3000);
     }),
     vscode.commands.registerCommand('vibeTerminal.reloadBackground', () => {
@@ -349,8 +441,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       log('configuration updated');
 
       if (patcher && portChanged) {
-        // CSP embeds the bridge port — re-patch and prompt for reload.
-        const result = patcher.patch(runtimeConfig(), config.bridgePort);
+        // CSP embeds the bridge port range — re-patch and prompt for reload.
+        const result = patcher.patch(bootstrapConfig(), config.bridgePort);
         if (result.status === 'failed') log(`re-patch failed: ${result.message ?? ''}`);
         else if (result.needsReload) offerReload('the bridge port changed.');
       }

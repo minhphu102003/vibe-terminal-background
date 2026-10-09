@@ -22,7 +22,7 @@ const CSS = `
   height: 100%;
   object-fit: var(--vibe-fit, cover);
   opacity: var(--vibe-video-opacity, 0.15);
-  transition: opacity var(--vibe-transition, 350ms) ease;
+  transition: opacity var(--vibe-transition, 350ms) ease-in-out;
   pointer-events: none;
   border: 0;
   display: block;
@@ -37,7 +37,7 @@ const CSS = `
   inset: 0;
   background: #000;
   opacity: var(--vibe-overlay-opacity, 0.55);
-  transition: opacity var(--vibe-transition, 350ms) ease;
+  transition: opacity var(--vibe-transition, 350ms) ease-in-out;
   pointer-events: none;
 }
 .${HOST_CLASS},
@@ -57,7 +57,7 @@ const CSS = `
 }
 .${HOST_CLASS} .xterm {
   opacity: var(--vibe-text-opacity, 1);
-  transition: opacity var(--vibe-transition, 350ms) ease;
+  transition: opacity var(--vibe-transition, 350ms) ease-in-out;
 }
 .${HOST_CLASS} .xterm-rows span[class*="xterm-bg-"]:not([class*="xterm-cursor"]),
 .${HOST_CLASS} .xterm-rows span[style*="background-color"]:not([class*="xterm-cursor"]) {

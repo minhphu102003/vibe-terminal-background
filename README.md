@@ -55,6 +55,7 @@ agent event ──curl──▶ bridge 127.0.0.1:47832 ──SSE──▶ inject
 | `Vibe Terminal: Set Background` | Pick a local MP4/WebM file |
 | `Vibe Terminal: Set TikTok Background` | Use a TikTok URL as background |
 | `Vibe Terminal: Add TikTok to Playlist` / `Remove from Playlist` | Manage entries |
+| `Vibe Terminal: Show Playlist` | List every entry (▶ = currently playing) with remove/copy/settings actions |
 | `Vibe Terminal: Clear / Toggle / Reload Background` | Day-to-day control |
 | `Vibe Terminal: Install / Uninstall Harness Adapters` | Agent hooks (QuickPick: claude, codex, opencode, pi, all) |
 | `Vibe Terminal: Simulate Thinking` / `Simulate Interactive` | Preview states without any agent |
@@ -82,6 +83,16 @@ agent event ──curl──▶ bridge 127.0.0.1:47832 ──SSE──▶ inject
   }
 }
 ```
+
+## Multiple VS Code windows (independent instances)
+
+Open **two different folders** in two VS Code windows and each gets its own background:
+
+- **Per-window bridge.** Each window scans upward from `vibeTerminal.bridgePort` (`47832`, `47833`, …) and binds the first free port. The bound port is published in that window's status bar as `vibe-bridge:<port>`, which the injected runtime reads to connect to **its own** bridge — never a sibling's.
+- **Per-folder config.** `playlist` and `enabled` are written to the **workspace** scope (`.vscode/settings.json` of the folder open in that window), so setting a video in one folder never overwrites another. An empty window falls back to the user scope.
+- **Shared workbench is neutral.** The patched `workbench.html` is shared by every window on the machine, so it only embeds a neutral bootstrap (`enabled:false`, empty playlist, base port). Real config and the real port arrive over each window's own SSE bridge — that is what keeps two instances from fighting over the one shared file.
+
+> Agent event routing (which window a `thinking`/`interactive` hook reports to) is per-window for the **state** visuals once each window has its own bridge, but the harness adapters are still installed with a single port. Run *Install Harness Adapters* in the window that should react to your agent.
 
 ## Harness adapters
 
