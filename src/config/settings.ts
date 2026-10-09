@@ -24,6 +24,13 @@ export interface VibeConfig {
   /** Freeze (pause) the video after this many seconds of continuous idle
    *  (interactive state with no change). 0 disables the idle-freeze. */
   idleFreezeSec: number;
+  /** Audio alert: when the agent stops (thinking -> interactive = it asks for
+   *  input or has a result), unmute the TikTok video for `notifySec` seconds so
+   *  an away user hears it. Off by default (needs the video to be able to play
+   *  with sound — see player.ts). */
+  notifyOnDone: boolean;
+  /** Duration of the notify unmute, in seconds. */
+  notifySec: number;
   states: Record<VibeState, StateVisuals>;
 }
 
@@ -37,6 +44,8 @@ export const DEFAULT_CONFIG: VibeConfig = {
   bridgePort: 47832,
   stateIdleFallbackSec: 300,
   idleFreezeSec: 30,
+  notifyOnDone: false,
+  notifySec: 30,
   states: {
     thinking: { videoOpacity: 0.85, overlayOpacity: 0.1, textOpacity: 0.4 },
     interactive: { videoOpacity: 0.15, overlayOpacity: 0.55, textOpacity: 1.0 },
@@ -93,6 +102,8 @@ export function mergeConfig(raw: unknown): VibeConfig {
     bridgePort: num(r.bridgePort, DEFAULT_CONFIG.bridgePort, 1024, 65535),
     stateIdleFallbackSec: num(r.stateIdleFallbackSec, DEFAULT_CONFIG.stateIdleFallbackSec, 10, 86400),
     idleFreezeSec: num(r.idleFreezeSec, DEFAULT_CONFIG.idleFreezeSec, 0, 86400),
+    notifyOnDone: bool(r.notifyOnDone, DEFAULT_CONFIG.notifyOnDone),
+    notifySec: num(r.notifySec, DEFAULT_CONFIG.notifySec, 1, 300),
     states: {
       thinking: visuals(states.thinking, DEFAULT_CONFIG.states.thinking),
       interactive: visuals(states.interactive, DEFAULT_CONFIG.states.interactive),
@@ -122,6 +133,8 @@ export interface RuntimeConfig {
   transitionMs: number;
   bridgePort: number;
   idleFreezeSec: number;
+  notifyOnDone: boolean;
+  notifySec: number;
   states: Record<VibeState, StateVisuals>;
 }
 
@@ -149,6 +162,8 @@ export function toRuntimeConfig(c: VibeConfig, lookup?: MetadataLookup): Runtime
     transitionMs: c.transitionMs,
     bridgePort: c.bridgePort,
     idleFreezeSec: c.idleFreezeSec,
+    notifyOnDone: c.notifyOnDone,
+    notifySec: c.notifySec,
     states: c.states,
   };
 }

@@ -37,6 +37,17 @@ export class PlayerManager {
   // Last play/pause intent from the runtime — respected when TikTok becomes
   // ready (otherwise onPlayerReady would force-play even while hidden).
   private paused = false;
+  // Notification (audio alert): unmute for notifySec when the agent stops.
+  // Requires the TikTok iframe to load muted=0 (muted=1 locks volume per TikTok
+  // docs, making unMute a no-op), which is only safe when notify is enabled.
+  private notifyEnabled = false;
+  private notifyActive = false;
+  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** True while a notification unmute is in flight (runtime suppresses idle-freeze). */
+  get isNotifying(): boolean {
+    return this.notifyActive;
+  }
 
   private readonly onMessage = (ev: MessageEvent) => this.handleMessage(ev);
 
@@ -53,6 +64,7 @@ export class PlayerManager {
     this.fit = cfg.fit;
     this.loop = cfg.loop;
     this.bridgePort = cfg.bridgePort;
+    this.notifyEnabled = cfg.notifyOnDone;
     if (playlistChanged) {
       this.entries = cfg.playlist;
       this.index = 0;
@@ -90,9 +102,37 @@ export class PlayerManager {
     if (this.iframe && this.ready) this.post('play');
   }
 
+  /** Unmute for durationSec as an audio alert, then restore the state mute. */
+  notify(durationSec: number): void {
+    if (this.notifyTimer) {
+      clearTimeout(this.notifyTimer);
+      this.notifyTimer = null;
+    }
+    this.notifyActive = true;
+    if (this.iframe && this.ready) {
+      this.post('play'); // ensure it is running (idle-freeze may have paused it)
+      this.post('unMute');
+    } else if (this.video) {
+      this.video.muted = false;
+      void this.video.play().catch(() => undefined);
+    }
+    this.cb.onLog(`notify: unmute ${durationSec}s`);
+    this.notifyTimer = setTimeout(() => {
+      this.notifyActive = false;
+      this.applyAudio(); // restore the state-appropriate mute
+      this.cb.onLog('notify: done -> mute');
+      this.notifyTimer = null;
+    }, durationSec * 1000);
+    (this.notifyTimer as { unref?: () => void }).unref?.();
+  }
+
   dispose(): void {
     this.disposed = true;
     window.removeEventListener('message', this.onMessage);
+    if (this.notifyTimer) {
+      clearTimeout(this.notifyTimer);
+      this.notifyTimer = null;
+    }
     this.teardownElement();
   }
 
@@ -136,9 +176,11 @@ export class PlayerManager {
     if (entry.kind === 'tiktok' && entry.tiktokId) {
       const iframe = document.createElement('iframe');
       iframe.className = 'vibe-media vibe-media--iframe';
-      // Always load muted: browsers block unmuted autoplay, which left the
-      // player paused forever. Sound is toggled via postMessage per state.
-      iframe.setAttribute('src', buildPlayerUrl(entry.tiktokId, { loop: single && this.loop, muted: true }));
+      // Load muted=1 normally (guaranteed autoplay). When notifications are on,
+      // load muted=0 so the player's volume is unlocked (muted=1 locks it and
+      // makes host unMute commands no-ops) — the runtime mutes right after
+      // ready and unmutes only for the notify window.
+      iframe.setAttribute('src', buildPlayerUrl(entry.tiktokId, { loop: single && this.loop, muted: !this.notifyEnabled }));
       iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen; picture-in-picture');
       iframe.setAttribute('title', 'vibe-terminal-tiktok');
       iframe.setAttribute('scrolling', 'no');
@@ -209,6 +251,16 @@ export class PlayerManager {
       case 'onVolumeChange':
         this.cb.onLog(`tiktok volume=${String(msg.value)}`);
         break;
+      case 'onError':
+        this.cb.onLog(`tiktok error=${String(msg.value)}`);
+        // 3002 AUTOPLAY_ERROR: browser blocked unmuted autoplay (we loaded
+        // muted=0 for notifications). Fall back to a muted=1 load so the video
+        // still plays (silently) instead of not at all.
+        if (msg.value === 3002 && this.notifyEnabled) {
+          this.notifyEnabled = false;
+          this.mount();
+        }
+        break;
       default:
         break;
     }
@@ -225,14 +277,14 @@ export class PlayerManager {
   }
 
   private applyAudio(): void {
-    const mute = shouldMute(this.audio, this.state);
+    // During a notification we force unmuted; otherwise state decides.
+    const mute = this.notifyActive ? false : shouldMute(this.audio, this.state);
     if (this.video) {
       this.video.muted = mute;
       if (!mute) void this.video.play().catch(() => undefined);
     }
-    // TikTok's embed pauses itself whenever it is unmuted without a user
-    // gesture inside the frame, so iframe entries always stay muted —
-    // stateful audio only applies to local <video> playlists.
-    if (this.iframe && this.ready) this.post('mute');
+    // TikTok: mute via postMessage only when NOT notifying. (Loads are muted=1
+    // unless notify is on — muted=1 would make even this mute redundant.)
+    if (this.iframe && this.ready && !this.notifyActive) this.post('mute');
   }
 }

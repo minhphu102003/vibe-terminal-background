@@ -12,6 +12,7 @@ import { StateServer, setAllowedMediaRoots } from './bridge/stateServer';
 import { locateWorkbench, WorkbenchPatcher } from './patch/workbenchPatcher';
 import { DiagnosticsLog } from './utils/diagnostics';
 import { extractTikTokId, isTikTokUrl } from './tiktok/parser';
+import { isPerAppVolumeSupported, rampNotifyFade, warmupPerAppVolume, disposePerAppVolume } from './audio/winPerAppVolume';
 import { fetchTikTokMetadata } from './tiktok/oembed';
 import { TikTokMetadataCache } from './tiktok/cache';
 import {
@@ -25,8 +26,19 @@ import {
 
 const SECTION = 'vibeTerminal';
 
+/** Per-app volume fade (the gentle notify) needs Windows Core Audio. Elsewhere
+ *  (macOS has no per-app volume API) the notify sound defaults to OFF. */
+function isNotifyFadeSupported(): boolean {
+  return process.platform === 'win32';
+}
+
 function readRawConfig(): Record<string, unknown> {
   const c = vscode.workspace.getConfiguration(SECTION);
+  // notifyOnDone defaults ON only where the fade works (Windows); the user can
+  // still set it explicitly on any platform.
+  const inspect = c.inspect<boolean>('notifyOnDone');
+  const explicit = inspect?.globalValue ?? inspect?.workspaceValue ?? inspect?.workspaceFolderValue;
+  const notifyOnDone = typeof explicit === 'boolean' ? explicit : isNotifyFadeSupported();
   return {
     enabled: c.get('enabled'),
     playlist: c.get('playlist'),
@@ -37,6 +49,8 @@ function readRawConfig(): Record<string, unknown> {
     bridgePort: c.get('bridgePort'),
     stateIdleFallbackSec: c.get('stateIdleFallbackSec'),
     idleFreezeSec: c.get('idleFreezeSec'),
+    notifyOnDone,
+    notifySec: c.get('notifySec'),
     states: c.get('states'),
   };
 }
@@ -128,9 +142,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onChange: (emit) => {
       log(`state -> ${emit.state} (${emit.reason}${emit.harness ? `, ${emit.harness}` : ''})`);
       server?.broadcast('state', { state: emit.state, harness: emit.harness, reason: emit.reason });
+      // Notify fade: agent stopped (thinking -> interactive = asks or done). The
+      // injected runtime unmutes the TikTok iframe; here we gently ramp the VS
+      // Code app volume 0 -> level so the music fades IN instead of jumping to
+      // full. Windows-only (per-app volume); a no-op elsewhere.
+      if (emit.state === 'interactive' && config.notifyOnDone && isPerAppVolumeSupported()) {
+        void rampNotifyFade(2.5, 1200).then((ran) => {
+          if (ran) log('notify fade: VS Code audio ramped in');
+        });
+      }
     },
   });
   context.subscriptions.push({ dispose: () => machine.dispose() });
+
+  // Pre-load the per-app volume helper (compiles C# ~1-2s) in the background so
+  // the FIRST notify fade is instant instead of lagging behind the unmute.
+  if (config.notifyOnDone && isPerAppVolumeSupported()) warmupPerAppVolume();
 
   // Each VS Code window binds its own bridge so 2+ instances stay independent:
   // scan upward from the configured base until a free port is found.
@@ -463,5 +490,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+  disposePerAppVolume();
   /* disposables are released via context.subscriptions */
 }

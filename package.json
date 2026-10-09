@@ -152,6 +152,18 @@
           "maximum": 86400,
           "description": "Pause the background video after this many seconds of continuous idle (no state change while interactive) to save CPU. 0 disables the idle-freeze."
         },
+        "vibeTerminal.notifyOnDone": {
+          "type": "boolean",
+          "default": false,
+          "description": "Audio alert: when the agent stops (thinking -> interactive = it asks for input or has a result), unmute the TikTok video for a few seconds so an away user hears it. Requires the video to be able to play with sound; may be blocked by browser autoplay policy."
+        },
+        "vibeTerminal.notifySec": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 300,
+          "description": "How long the notify unmute lasts, in seconds."
+        },
         "vibeTerminal.states": {
           "type": "object",
           "default": {

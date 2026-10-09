@@ -18,6 +18,8 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   transitionMs: 350,
   bridgePort: 47832,
   idleFreezeSec: 30,
+  notifyOnDone: false,
+  notifySec: 30,
   states: {
     thinking: { videoOpacity: 0.85, overlayOpacity: 0.1, textOpacity: 0.4 },
     interactive: { videoOpacity: 0.15, overlayOpacity: 0.55, textOpacity: 1.0 },
@@ -319,10 +321,18 @@ class VibeRuntime {
 
   private setState(next: VibeState): void {
     if (this.state === next) return;
+    const prev = this.state;
     this.state = next;
     this.log(`state -> ${next}#${this.uid}`);
     this.stateApplied();
     this.resetIdle();
+    // Notification: agent stopped (thinking -> interactive) = it is now asking
+    // for input or has a result. Unmute the video for notifySec as an audio
+    // alert (the user may be away from the machine).
+    if (prev === 'thinking' && next === 'interactive' && this.cfg.notifyOnDone) {
+      this.players?.notify(this.cfg.notifySec);
+      this.log(`notify ${this.cfg.notifySec}s (agent ready)`);
+    }
   }
 
   private stateApplied(): void {
@@ -472,6 +482,12 @@ class VibeRuntime {
     const sec = this.cfg.idleFreezeSec;
     if (sec > 0) {
       this.idleTimer = setTimeout(() => {
+        // Still unmuted for a notification — do not freeze yet; re-arm so the
+        // freeze is measured from when the notification ends.
+        if (this.players?.isNotifying) {
+          this.resetIdle();
+          return;
+        }
         // Only freeze if we are still idle (interactive) when the timer fires.
         if (this.state === 'interactive') {
           this.idleFrozen = true;
