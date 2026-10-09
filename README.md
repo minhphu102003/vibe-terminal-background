@@ -165,6 +165,7 @@ playlist rotation (local clip → TikTok), then prints a PASS/FAIL verdict per c
 Full design (12-phase plan, hooks protocol, visuals, acceptance checklist):
 `vibe-terminal-background-spec.md` (in the repository root).
 
+User guide: `USER_GUIDE.md` — install, keybindings, per-agent setup.
 Step-by-step installation & testing guide (Vietnamese): `HUONG_DAN.md`.
 
 ## License
