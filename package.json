@@ -145,6 +145,13 @@
           "maximum": 86400,
           "description": "Revert a stuck 'thinking' state to 'interactive' after this many seconds without events."
         },
+        "vibeTerminal.idleFreezeSec": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "Pause the background video after this many seconds of continuous idle (no state change while interactive) to save CPU. 0 disables the idle-freeze."
+        },
         "vibeTerminal.states": {
           "type": "object",
           "default": {

@@ -17,6 +17,7 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   audio: 'stateful',
   transitionMs: 350,
   bridgePort: 47832,
+  idleFreezeSec: 30,
   states: {
     thinking: { videoOpacity: 0.85, overlayOpacity: 0.1, textOpacity: 0.4 },
     interactive: { videoOpacity: 0.15, overlayOpacity: 0.55, textOpacity: 1.0 },
@@ -49,6 +50,27 @@ class VibeRuntime {
   private players: PlayerManager | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private intersectionObserver: IntersectionObserver | null = null;
+  // Playback gating: video runs only when BOTH the host element is on screen
+  // (IntersectionObserver) AND the window itself is visible (visibilitychange).
+  private hostVisible = false;
+  private docVisible = typeof document !== 'undefined' ? !document.hidden : true;
+  // Idle-freeze (Triết lý D): pause the video after idleFreezeSec of continuous
+  // interactive state with no change — stops the decoder (0 CPU) while the faint
+  // frozen frame (interactive videoOpacity ≈ 0.15) stays on screen.
+  private idleFrozen = false;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly onVisibilityChange = () => {
+    const visible = !document.hidden;
+    if (visible === this.docVisible) return;
+    this.docVisible = visible;
+    if (visible) {
+      this.syncPlayback();
+      this.log('window visible -> resume check');
+    } else {
+      this.players?.pause();
+      this.log('window hidden -> pause');
+    }
+  };
   private source: EventSource | null = null;
   private sseWatchdog: ReturnType<typeof setInterval> | null = null;
   private sseStuckSince: number | null = null;
@@ -69,6 +91,7 @@ class VibeRuntime {
       `runtime started#${this.uid} inst=${this.inst} calls=${this.logCalls} (enabled=${String(this.cfg.enabled)}, entries=${this.cfg.playlist.length})`,
     );
     this.watchDom();
+    this.watchVisibility();
     // The bridge may not be listening yet during early boot — queue + retry.
     this.logFlush = setInterval(() => this.flushLogs(), 300);
     (this.logFlush as { unref?: () => void }).unref?.();
@@ -291,6 +314,7 @@ class VibeRuntime {
     this.players?.configure(this.cfg);
     if (this.root) applyStateVars(this.root, this.cfg, this.state);
     this.layout();
+    this.resetIdle(); // re-arm with the (possibly new) idleFreezeSec
   }
 
   private setState(next: VibeState): void {
@@ -298,6 +322,7 @@ class VibeRuntime {
     this.state = next;
     this.log(`state -> ${next}#${this.uid}`);
     this.stateApplied();
+    this.resetIdle();
   }
 
   private stateApplied(): void {
@@ -388,13 +413,13 @@ class VibeRuntime {
     this.resizeObserver = new ResizeObserver(() => this.layout());
     this.resizeObserver.observe(root);
     this.intersectionObserver = new IntersectionObserver((entries) => {
-      const visible = entries.some((e) => e.isIntersecting);
-      if (visible) this.players?.play();
-      else this.players?.pause();
+      this.hostVisible = entries.some((e) => e.isIntersecting);
+      this.syncPlayback();
     });
     this.intersectionObserver.observe(host);
 
     this.layout();
+    this.resetIdle(); // start the idle-freeze countdown for this mount
     this.log(`mounted into <${host.tagName.toLowerCase()} class="${host.className}">`);
     void this.runDiagnostics(host);
   }
@@ -405,6 +430,10 @@ class VibeRuntime {
   }
 
   private teardown(removeHostFlags = true): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
     if (this.portDiscoveryTimer) {
       clearTimeout(this.portDiscoveryTimer);
       this.portDiscoveryTimer = null;
@@ -422,6 +451,40 @@ class VibeRuntime {
       this.host.removeAttribute('data-vibe-state');
     }
     this.host = null;
+  }
+
+  /** Play only when the host is on screen AND the window is visible AND we
+   *  are not idle-frozen. This is the single choke point for playback. */
+  private syncPlayback(): void {
+    if (this.hostVisible && this.docVisible && !this.idleFrozen) this.players?.play();
+    else this.players?.pause();
+  }
+
+  /** (Re)start the idle-freeze countdown. Called on every state change and on
+   *  mount so the timer measures time since the LAST state change. */
+  private resetIdle(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    this.idleFrozen = false;
+    this.syncPlayback(); // resume now that we are no longer frozen
+    const sec = this.cfg.idleFreezeSec;
+    if (sec > 0) {
+      this.idleTimer = setTimeout(() => {
+        // Only freeze if we are still idle (interactive) when the timer fires.
+        if (this.state === 'interactive') {
+          this.idleFrozen = true;
+          this.syncPlayback();
+          this.log(`idle ${sec}s -> freeze (pause decode)`);
+        }
+      }, sec * 1000);
+      (this.idleTimer as { unref?: () => void }).unref?.();
+    }
+  }
+
+  private watchVisibility(): void {
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private watchDom(): void {

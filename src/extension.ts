@@ -36,6 +36,7 @@ function readRawConfig(): Record<string, unknown> {
     transitionMs: c.get('transitionMs'),
     bridgePort: c.get('bridgePort'),
     stateIdleFallbackSec: c.get('stateIdleFallbackSec'),
+    idleFreezeSec: c.get('idleFreezeSec'),
     states: c.get('states'),
   };
 }

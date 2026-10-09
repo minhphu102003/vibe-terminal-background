@@ -21,6 +21,9 @@ export interface VibeConfig {
   transitionMs: number;
   bridgePort: number;
   stateIdleFallbackSec: number;
+  /** Freeze (pause) the video after this many seconds of continuous idle
+   *  (interactive state with no change). 0 disables the idle-freeze. */
+  idleFreezeSec: number;
   states: Record<VibeState, StateVisuals>;
 }
 
@@ -33,6 +36,7 @@ export const DEFAULT_CONFIG: VibeConfig = {
   transitionMs: 350,
   bridgePort: 47832,
   stateIdleFallbackSec: 300,
+  idleFreezeSec: 30,
   states: {
     thinking: { videoOpacity: 0.85, overlayOpacity: 0.1, textOpacity: 0.4 },
     interactive: { videoOpacity: 0.15, overlayOpacity: 0.55, textOpacity: 1.0 },
@@ -88,6 +92,7 @@ export function mergeConfig(raw: unknown): VibeConfig {
     transitionMs: num(r.transitionMs, DEFAULT_CONFIG.transitionMs, 0, 5000),
     bridgePort: num(r.bridgePort, DEFAULT_CONFIG.bridgePort, 1024, 65535),
     stateIdleFallbackSec: num(r.stateIdleFallbackSec, DEFAULT_CONFIG.stateIdleFallbackSec, 10, 86400),
+    idleFreezeSec: num(r.idleFreezeSec, DEFAULT_CONFIG.idleFreezeSec, 0, 86400),
     states: {
       thinking: visuals(states.thinking, DEFAULT_CONFIG.states.thinking),
       interactive: visuals(states.interactive, DEFAULT_CONFIG.states.interactive),
@@ -116,6 +121,7 @@ export interface RuntimeConfig {
   audio: AudioMode;
   transitionMs: number;
   bridgePort: number;
+  idleFreezeSec: number;
   states: Record<VibeState, StateVisuals>;
 }
 
@@ -142,6 +148,7 @@ export function toRuntimeConfig(c: VibeConfig, lookup?: MetadataLookup): Runtime
     audio: c.audio,
     transitionMs: c.transitionMs,
     bridgePort: c.bridgePort,
+    idleFreezeSec: c.idleFreezeSec,
     states: c.states,
   };
 }

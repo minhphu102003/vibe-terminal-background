@@ -34,6 +34,9 @@ export class PlayerManager {
   private containerH = 0;
   private disposed = false;
   private ready = false;
+  // Last play/pause intent from the runtime — respected when TikTok becomes
+  // ready (otherwise onPlayerReady would force-play even while hidden).
+  private paused = false;
 
   private readonly onMessage = (ev: MessageEvent) => this.handleMessage(ev);
 
@@ -75,11 +78,16 @@ export class PlayerManager {
   }
 
   pause(): void {
-    this.video?.pause();
+    this.paused = true;
+    if (this.video) this.video.pause();
+    // TikTok iframe: postMessage pause (no-op until onPlayerReady → ready).
+    if (this.iframe && this.ready) this.post('pause');
   }
 
   play(): void {
+    this.paused = false;
     if (this.video) void this.video.play().catch(() => undefined);
+    if (this.iframe && this.ready) this.post('play');
   }
 
   dispose(): void {
@@ -153,7 +161,7 @@ export class PlayerManager {
       });
       this.video = video;
       this.root.appendChild(video);
-      void video.play().catch(() => this.cb.onLog('autoplay blocked (will start muted)'));
+      if (!this.paused) void video.play().catch(() => this.cb.onLog('autoplay blocked (will start muted)'));
       this.cb.onLog(`local video mounted (${entry.source})`);
     }
 
@@ -189,7 +197,7 @@ export class PlayerManager {
       case 'onPlayerReady':
         this.ready = true;
         this.cb.onLog('tiktok onPlayerReady');
-        this.post('play');
+        if (!this.paused) this.post('play');
         this.applyAudio();
         break;
       case 'onStateChange':

@@ -192,6 +192,7 @@ describe('config/settings', () => {
       transitionMs: 999999,
       bridgePort: 5,
       stateIdleFallbackSec: 1,
+      idleFreezeSec: -5,
     });
     assert.equal(c.states.thinking.videoOpacity, 1);
     assert.equal(c.states.thinking.overlayOpacity, 0);
@@ -199,7 +200,11 @@ describe('config/settings', () => {
     assert.equal(c.transitionMs, 5000);
     assert.equal(c.bridgePort, 1024);
     assert.equal(c.stateIdleFallbackSec, 10);
+    assert.equal(c.idleFreezeSec, 0);
     assert.equal(c.states.interactive.textOpacity, 1);
+    // 0 is a valid "disabled" value and must survive; over-max clamps down.
+    assert.equal(mergeConfig({ idleFreezeSec: 0 }).idleFreezeSec, 0);
+    assert.equal(mergeConfig({ idleFreezeSec: 999999 }).idleFreezeSec, 86400);
   });
 
   it('sanitizes playlist entries', () => {
@@ -214,10 +219,12 @@ describe('config/settings', () => {
   });
 
   it('toRuntimeConfig strips extension-only fields', () => {
-    const rt = toRuntimeConfig(mergeConfig({ enabled: false, bridgePort: 5000 }));
+    const rt = toRuntimeConfig(mergeConfig({ enabled: false, bridgePort: 5000, idleFreezeSec: 45 }));
     assert.equal('stateIdleFallbackSec' in rt, false);
     assert.equal(rt.enabled, false);
     assert.equal(rt.bridgePort, 5000);
+    // idleFreezeSec IS consumed by the runtime (idle-freeze) so it must pass through.
+    assert.equal(rt.idleFreezeSec, 45);
   });
 
   it('clamp01 fallbacks', () => {
