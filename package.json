@@ -81,6 +81,11 @@
         "command": "vibeTerminal.unpatch",
         "title": "Unpatch / Repair",
         "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.openConfig",
+        "title": "Open Settings (JSON)",
+        "category": "Vibe Terminal"
       }
     ],
     "configuration": {

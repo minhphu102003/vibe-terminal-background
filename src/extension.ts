@@ -384,6 +384,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await c.update('playlist', [], configTarget());
       void vscode.window.setStatusBarMessage('Vibe Terminal: background cleared', 3000);
     }),
+    // Open the settings JSON for comprehensive vibeTerminal editing (VS Code
+    // IntelliSense lists every setting). Global = user settings.json (the
+    // default for every folder); Workspace = this folder's .vscode/settings.json
+    // (overrides Global). Picking Global here is the easy way to set a global
+    // default without having to open an empty window first.
+    vscode.commands.registerCommand('vibeTerminal.openConfig', async () => {
+      type ScopePick = { label: string; description: string; scope: 'global' | 'workspace' };
+      const pick = await vscode.window.showQuickPick<ScopePick>(
+        [
+          { label: 'Global', description: 'user settings.json — default for every folder', scope: 'global' },
+          { label: 'Workspace', description: '.vscode/settings.json — this folder only', scope: 'workspace' },
+        ],
+        { title: 'Vibe Terminal: open settings JSON', placeHolder: 'Choose which settings file to edit' },
+      );
+      if (!pick) return;
+      await vscode.commands.executeCommand(
+        pick.scope === 'global'
+          ? 'workbench.action.openSettingsJson'
+          : 'workbench.action.openWorkspaceSettingsFile',
+      );
+    }),
     vscode.commands.registerCommand('vibeTerminal.reloadBackground', () => {
       server?.broadcast('reload', {});
       log('reload broadcast');
