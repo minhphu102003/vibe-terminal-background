@@ -86,6 +86,48 @@
         "command": "vibeTerminal.openConfig",
         "title": "Open Settings (JSON)",
         "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.increaseThinkingVideoOpacity",
+        "title": "Thinking Video: Increase Opacity",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.decreaseThinkingVideoOpacity",
+        "title": "Thinking Video: Decrease Opacity",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.increaseInteractiveVideoOpacity",
+        "title": "Interactive Video: Increase Opacity",
+        "category": "Vibe Terminal"
+      },
+      {
+        "command": "vibeTerminal.decreaseInteractiveVideoOpacity",
+        "title": "Interactive Video: Decrease Opacity",
+        "category": "Vibe Terminal"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vibeTerminal.increaseThinkingVideoOpacity",
+        "key": "ctrl+alt+shift+up",
+        "when": "!inDebugRepl"
+      },
+      {
+        "command": "vibeTerminal.decreaseThinkingVideoOpacity",
+        "key": "ctrl+alt+shift+down",
+        "when": "!inDebugRepl"
+      },
+      {
+        "command": "vibeTerminal.increaseInteractiveVideoOpacity",
+        "key": "ctrl+alt+shift+right",
+        "when": "!inDebugRepl"
+      },
+      {
+        "command": "vibeTerminal.decreaseInteractiveVideoOpacity",
+        "key": "ctrl+alt+shift+left",
+        "when": "!inDebugRepl"
       }
     ],
     "configuration": {

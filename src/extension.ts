@@ -6,7 +6,14 @@
 import * as vscode from 'vscode';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { mergeConfig, toRuntimeConfig, type VibeConfig, type VibeState } from './config/settings';
+import {
+  clamp01,
+  DEFAULT_CONFIG,
+  mergeConfig,
+  toRuntimeConfig,
+  type VibeConfig,
+  type VibeState,
+} from './config/settings';
 import { StateMachine } from './bridge/stateMachine';
 import { StateServer, setAllowedMediaRoots } from './bridge/stateServer';
 import { locateWorkbench, WorkbenchPatcher } from './patch/workbenchPatcher';
@@ -265,6 +272,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return url ? url.trim() : null;
   };
 
+  // Fine-grained transparency: each state (thinking / interactive) has its OWN
+  // videoOpacity, so each gets its own key pair and can be tuned at any time —
+  // not only while that state is the active one. 0.05 = 20 steps across 0..1.
+  const OPACITY_STEP = 0.05;
+  const adjustVideoOpacity = async (state: VibeState, delta: number): Promise<void> => {
+    const key = `states.${state}.videoOpacity`;
+    const fallback = DEFAULT_CONFIG.states[state].videoOpacity;
+    const c = vscode.workspace.getConfiguration(SECTION);
+    const cur = clamp01(c.get<number>(key), fallback);
+    const next = clamp01(cur + delta, fallback);
+    if (next === cur) {
+      void vscode.window.setStatusBarMessage(
+        `Vibe Terminal: ${state} video opacity at ${cur.toFixed(2)} limit`,
+        3000,
+      );
+      return;
+    }
+    await c.update(key, next, configTarget());
+    void vscode.window.setStatusBarMessage(
+      `Vibe Terminal: ${state} video opacity ${cur.toFixed(2)} → ${next.toFixed(2)}`,
+      3000,
+    );
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('vibeTerminal.setBackground', async () => {
       const uris = await vscode.window.showOpenDialog({
@@ -405,6 +436,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : 'workbench.action.openWorkspaceSettingsFile',
       );
     }),
+    // Live transparency: thinking and interactive videos are tuned separately
+    // (they are independent values), so each state owns a key pair that works
+    // regardless of which state is currently active. Writes go to the same
+    // scope as the other setters — persisted + broadcast over SSE at once.
+    vscode.commands.registerCommand('vibeTerminal.increaseThinkingVideoOpacity', () =>
+      adjustVideoOpacity('thinking', OPACITY_STEP),
+    ),
+    vscode.commands.registerCommand('vibeTerminal.decreaseThinkingVideoOpacity', () =>
+      adjustVideoOpacity('thinking', -OPACITY_STEP),
+    ),
+    vscode.commands.registerCommand('vibeTerminal.increaseInteractiveVideoOpacity', () =>
+      adjustVideoOpacity('interactive', OPACITY_STEP),
+    ),
+    vscode.commands.registerCommand('vibeTerminal.decreaseInteractiveVideoOpacity', () =>
+      adjustVideoOpacity('interactive', -OPACITY_STEP),
+    ),
     vscode.commands.registerCommand('vibeTerminal.reloadBackground', () => {
       server?.broadcast('reload', {});
       log('reload broadcast');
@@ -437,7 +484,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (!picked) return;
       const ids: HarnessId[] = picked.label === 'all' ? [...HARNESS_IDS] : [picked.label as HarnessId];
-      const io = { home: homedir(), port: config.bridgePort };
+      const io = { home: homedir(), port: boundPort || config.bridgePort };
       let failed = 0;
       for (const id of ids) {
         for (const r of installHarness(id, io)) {
